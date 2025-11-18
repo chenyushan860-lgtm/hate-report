@@ -21,7 +21,7 @@
       <!-- 表单区域 -->
       <div class="login-form">
         <nut-row gutter="20">
-          <!-- 用户名输入框（移除图标） -->
+          <!-- 用户名输入框 -->
           <nut-col :span="24">
             <div class="input-wrapper">
               <nut-input 
@@ -34,7 +34,7 @@
             </div>
           </nut-col>
 
-          <!-- 密码输入框（移除图标） -->
+          <!-- 密码输入框 -->
           <nut-col :span="24">
             <div class="input-wrapper">
               <nut-input
@@ -92,7 +92,7 @@
 import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { showNotify } from "@nutui/nutui";
-import { login as apiLogin } from "@/api/auth";
+import { login as apiLogin } from "@/api/auth"; // 确保接口路径正确
 
 const router = useRouter();
 const username = ref("");
@@ -101,7 +101,7 @@ const loginLoading = ref(false);
 const usernameFocus = ref(false);
 const passwordFocus = ref(false);
 
-// 登录逻辑
+// 登录逻辑（确保接口返回与业务逻辑匹配）
 const doLogin = async () => {
   if (!username.value.trim()) {
     return showNotify.warn("请输入用户名");
@@ -116,13 +116,13 @@ const doLogin = async () => {
       username: username.value.trim(),
       password: password.value.trim(),
     });
+    // 请根据实际接口返回调整判断逻辑
     if (res.data.code === 0 && res.data.data) {
-      // 登录成功，保存 token
       const { access_token, refresh_token } = res.data.data;
       localStorage.setItem("token", access_token);
       localStorage.setItem("refreshToken", refresh_token);
       showNotify.success("登录成功，欢迎回来～");
-      router.push("/"); // 跳转首页
+      router.push("/"); // 跳转至首页
     } else {
       showNotify.error(res.data.msg || "登录失败，请检查账号密码");
     }
@@ -137,7 +137,7 @@ const doLogin = async () => {
 // 跳转注册页
 const goRegister = () => router.push("/register");
 
-// 功能提示
+// 功能提示（开发中提示）
 const showTip = (text) => {
   showNotify.info(`${text}功能开发中`);
 };
@@ -252,7 +252,7 @@ const showTip = (text) => {
   margin-bottom: 25px;
 }
 
-/* 输入框容器（移除图标相关样式） */
+/* 输入框容器 */
 .input-wrapper {
   position: relative;
   border-radius: 12px;
@@ -266,10 +266,10 @@ const showTip = (text) => {
   box-shadow: 0 0 0 3px rgba(25, 137, 250, 0.1);
 }
 
-/* 输入框样式（恢复默认内边距） */
+/* 输入框样式 */
 .nut-input {
   --nutui-input-height: 52px !important;
-  --nutui-input-padding-left: 16px !important; /* 恢复默认内边距，无图标更紧凑 */
+  --nutui-input-padding-left: 16px !important;
   --nutui-input-padding-right: 16px !important;
   --nutui-input-font-size: 16px !important;
   --nutui-input-placeholder-color: #c9cdD4 !important;

@@ -12,83 +12,88 @@
       </span>
     </div>
 
-    <nut-infinite-loading
-      v-model="infinityValue"
-      :has-more="hasMore"
-      @load-more="loadMore"
+    <!-- 保留拉刷新（增加容错） -->
+    <nut-pull-refresh
+      v-model="refresh"
+      @refresh="refreshFun"
+      loosing-txt="松开刷新"
+      loading-txt="刷新中..."
+      :complete-duration="1000"
     >
-      <nut-pull-refresh
-        v-model="refresh"
-        @refresh="refreshFun"
-        loosing-txt="松开刷新"
-        loading-txt="刷新中..."
-        :complete-duration="1000"
-      >
-        <!-- 设备列表 -->
-        <div class="device-list">
-          <!-- 设备项 - 简化过渡动画 -->
-          <div
-            v-for="item in devices"
-            :key="item.id"
-            class="device-item"
-            :class="{
-              'status-online': item.status === 0,
-              'status-offline': item.status === 1,
-              'status-fault': item.status === 2
-            }"
-            @click="goToDetail(item.id)"
-          >
-            <div class="device-info">
-              <div class="device-name-wrapper">
-                <p class="device-name">{{ item.name || '未知设备' }}</p>
-                <!-- 状态标签 -->
-                <span class="status-tag" :class="`status-${getStatusClass(item.status)}`">
-                  {{ statusText(item.status) }}
-                </span>
-              </div>
-              <p class="device-product">产品 {{ item.product || '未知型号' }}</p>
-              <!-- 最后更新时间 -->
-              <p class="device-time">{{ formatTime(item.updated_at) }}</p>
+      <!-- 设备列表容器 -->
+      <div class="device-list">
+        <!-- 设备项 -->
+        <div
+          v-for="item in devices"
+          :key="item.id"
+          class="device-item"
+          :class="{
+            'status-online': item.status === 0,
+            'status-offline': item.status === 1,
+            'status-fault': item.status === 2
+          }"
+          @click="goToDetail(item.id)"
+        >
+          <div class="device-info">
+            <div class="device-name-wrapper">
+              <p class="device-name">{{ item.name || '未知设备' }}</p>
+              <span class="status-tag" :class="`status-${getStatusClass(item.status)}`">
+                {{ statusText(item.status) }}
+              </span>
             </div>
-
-            <div class="device-actions">
-              <!-- 开关控制 -->
-              <label class="toggle-switch" :class="{ disabled: !isOnline(item.status) }">
-                <input 
-                  type="checkbox" 
-                  v-model="item.switch" 
-                  @change="toggleSwitch(item)"
-                  :disabled="!isOnline(item.status)"
-                />
-                <span class="slider"></span>
-              </label>
-            </div>
+            <p class="device-product">产品 {{ item.product || '未知型号' }}</p>
+            <p class="device-time">{{ formatTime(item.updated_at) }}</p>
           </div>
 
-          <!-- 空列表提示 -->
-          <div 
-            v-if="devices.length === 0 && !refresh" 
-            class="empty-list-message"
-          >
-            <div class="empty-icon">📱</div>
-            <p>暂无设备数据</p>
-            <p>请点击刷新按钮或联系管理员添加设备</p>
-            <div 
-              class="refresh-btn" 
-              @click="refreshFun"
-            >
-              立即刷新
-            </div>
-          </div>
-
-          <!-- 加载中提示 -->
-          <div v-if="devices.length === 0 && refresh" class="loading-message">
-            <div class="loading-spinner"></div>
-            <p>正在加载设备数据...</p>
+          <div class="device-actions">
+            <label class="toggle-switch" :class="{ disabled: !isOnline(item.status) }">
+              <input 
+                type="checkbox" 
+                v-model="item.switch" 
+                @change="toggleSwitch(item)"
+                :disabled="!isOnline(item.status)"
+              />
+              <span class="slider"></span>
+            </label>
           </div>
         </div>
-      </nut-pull-refresh>
-    </nut-infinite-loading>
+
+        <!-- 空列表提示（优化文案，增加辨识度） -->
+        <div 
+          v-if="devices.length === 0 && !refresh && !loading" 
+          class="empty-list-message"
+        >
+          <div class="empty-icon">📱</div>
+          <p>暂无设备数据</p>
+          <p>请检查网络或联系管理员</p>
+          <div 
+            class="refresh-btn" 
+            @click="refreshFun"
+          >
+            重新加载
+          </div>
+        </div>
+
+        <!-- 加载中提示（确保加载状态可见） -->
+        <div v-if="loading" class="loading-message">
+          <div class="loading-spinner"></div>
+          <p>正在加载设备数据...</p>
+        </div>
+
+        <!-- 错误提示（新增，避免白屏无反馈） -->
+        <div v-if="error" class="error-message">
+          <div class="error-icon">❌</div>
+          <p>加载失败</p>
+          <p>{{ errorMsg }}</p>
+          <div 
+            class="refresh-btn" 
+            @click="refreshFun"
+          >
+            重试
+          </div>
+        </div>
+      </div>
+    </nut-pull-refresh>
 
     <HyTabBar />
   </div>
@@ -97,35 +102,29 @@
 <script setup>
 import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
+import { showNotify } from "@nutui/nutui"; // 恢复提示，增加用户反馈
 import HyTabBar from "./../components/Hytabbar.vue";
 import { getDeviceList } from "@/api/device";
 
-// 避免未导入的组件报错，移除 NutButton 和 NutLoading
-
 const router = useRouter();
 const devices = ref([]);
-const page = ref(1);
-const limit = ref(10);
-const total = ref(0);
-const hasMore = ref(true);
-const infinityValue = ref(false);
 const refresh = ref(false);
+const loading = ref(false); // 新增加载状态，避免白屏
+const error = ref(false); // 新增错误状态
+const errorMsg = ref("网络异常，请稍后重试"); // 错误提示文案
 
-// 格式化时间（容错处理）
+// 格式化时间（简化容错）
 const formatTime = (time) => {
   if (!time) return "未知时间";
   try {
-    const date = new Date(time);
-    return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+    return new Date(time).toLocaleString() || "未知时间";
   } catch (e) {
-    return "时间格式错误";
+    return "未知时间";
   }
 };
 
 // 判断设备是否在线
-const isOnline = (status) => {
-  return status === 0; // 0表示在线
-};
+const isOnline = (status) => status === 0;
 
 // 获取状态类名
 const getStatusClass = (status) => {
@@ -147,22 +146,26 @@ const statusText = (status) => {
   }
 };
 
-// 获取设备列表（容错处理）
-const fetchDevices = async (reset = false) => {
+// 获取所有设备（优化接口调用和容错）
+const fetchDevices = async () => {
+  loading.value = true;
+  error.value = false; // 重置错误状态
   try {
-    const res = await getDeviceList(page.value, limit.value);
+    console.log("开始请求设备列表..."); // 日志，方便排查
+    const res = await getDeviceList(); // 调用接口
+    console.log("接口返回结果:", res); // 日志，查看接口返回格式
 
-    if (!res || res.data.code !== 0) {
-      console.error("接口返回异常", res);
-      return;
+    // 严格容错：判断接口返回是否正常
+    if (!res || !res.data || res.data.code !== 0) {
+      throw new Error(res?.data?.msg || "接口返回异常");
     }
 
     const list = res.data.data?.list || [];
-    total.value = res.data.data?.total || 0;
+    console.log("设备列表数据:", list); // 日志，查看设备数据
 
-    // 为设备添加默认值，避免undefined报错
-    const formattedList = list.map(item => ({
-      id: item.id || Math.random().toString(36).substr(2, 9), // 临时ID
+    // 格式化设备数据（确保字段存在，避免渲染报错）
+    devices.value = list.map(item => ({
+      id: item.id || `dev_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`, // 确保id唯一
       name: item.name || "未知设备",
       product: item.product || "未知型号",
       status: item.status ?? 1, // 默认离线
@@ -170,45 +173,38 @@ const fetchDevices = async (reset = false) => {
       updated_at: item.updated_at || new Date().toISOString()
     }));
 
-    if (reset) {
-      devices.value = formattedList;
-    } else {
-      devices.value = [...devices.value, ...formattedList];
+    // 空数据提示
+    if (devices.value.length === 0) {
+      showNotify.info("当前暂无设备数据");
     }
-
-    hasMore.value = devices.value.length < total.value;
   } catch (err) {
-    console.error("获取设备列表失败", err);
-    hasMore.value = false;
-    // 显示错误提示（避免白屏）
-    if (reset) devices.value = [];
+    console.error("获取设备列表失败:", err);
+    error.value = true;
+    errorMsg.value = err.message || "加载设备失败，请重试";
+    showNotify.error(errorMsg.value); // 错误提示
+    devices.value = [];
   } finally {
-    infinityValue.value = false;
+    loading.value = false;
     refresh.value = false;
   }
 };
 
 // 刷新列表
 const refreshFun = () => {
-  page.value = 1;
-  fetchDevices(true);
-};
-
-// 加载更多
-const loadMore = () => {
-  page.value++;
   fetchDevices();
 };
 
 // 跳转到详情页
 const goToDetail = (id) => {
-  router.push(`/detail/${id}`).catch(err => console.error("路由跳转失败", err));
+  router.push(`/detail/${id}`).catch(err => {
+    console.error("路由跳转失败:", err);
+    showNotify.error("进入详情页失败");
+  });
 };
 
 // 切换设备开关
 const toggleSwitch = (item) => {
   if (!isOnline(item.status)) return;
-  
   item.switch = !item.switch;
   console.log("设备开关状态:", item.name, item.switch);
   // TODO: 调用后端接口更新开关状态
@@ -216,17 +212,18 @@ const toggleSwitch = (item) => {
 
 // 初始化加载
 onMounted(() => {
-  fetchDevices(true);
+  fetchDevices();
 });
 </script>
 
 <style scoped>
-/* 全局样式 - 确保背景色可见 */
+/* 全局样式 - 确保背景色可见，避免白屏错觉 */
 .container {
   min-height: 100vh;
   background-color: #f5f7fa;
   color: #333;
   overflow-x: hidden;
+  padding-bottom: 70px; /* 适配TabBar，避免底部被遮挡 */
 }
 
 /* 顶部导航 */
@@ -263,7 +260,6 @@ onMounted(() => {
   transition: transform 0.3s ease;
 }
 
-/* 刷新图标旋转动画 */
 .header .refresh-icon.rotating {
   animation: rotate 1s linear infinite;
 }
@@ -273,12 +269,12 @@ onMounted(() => {
   to { transform: rotate(360deg); }
 }
 
-/* 设备列表容器 */
+/* 设备列表容器 - 调整内边距，确保加载状态可见 */
 .device-list {
-  padding: 60px 10px 70px 10px; /* 底部留空适配TabBar */
+  padding: 60px 10px 20px;
 }
 
-/* 设备项样式 */
+/* 设备项样式（保持不变） */
 .device-item {
   background-color: #fff;
   border-radius: 12px;
@@ -297,7 +293,6 @@ onMounted(() => {
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
 }
 
-/* 设备信息区域 */
 .device-info {
   flex-grow: 1;
   margin-right: 10px;
@@ -333,7 +328,7 @@ onMounted(() => {
   margin: 0;
 }
 
-/* 状态标签 */
+/* 状态标签（保持不变） */
 .status-tag {
   font-size: 12px;
   padding: 2px 8px;
@@ -361,7 +356,7 @@ onMounted(() => {
   color: #86909c;
 }
 
-/* 设备操作区 */
+/* 设备操作区（保持不变） */
 .device-actions {
   display: flex;
   flex-direction: column;
@@ -369,7 +364,6 @@ onMounted(() => {
   min-width: 60px;
 }
 
-/* 开关样式 */
 .toggle-switch {
   position: relative;
   display: inline-block;
@@ -416,7 +410,6 @@ input:checked + .slider:before {
   transform: translateX(24px);
 }
 
-/* 禁用状态 */
 .toggle-switch.disabled .slider {
   background-color: #f2f3f5;
   cursor: not-allowed;
@@ -426,7 +419,7 @@ input:checked + .slider:before {
   background-color: #c9cdD4;
 }
 
-/* 空列表提示 */
+/* 空列表提示（保持不变） */
 .empty-list-message {
   text-align: center;
   padding: 80px 20px 40px;
@@ -451,7 +444,7 @@ input:checked + .slider:before {
   margin-bottom: 8px;
 }
 
-/* 刷新按钮（纯CSS实现，避免依赖组件） */
+/* 刷新按钮（保持不变） */
 .refresh-btn {
   margin-top: 20px;
   padding: 8px 20px;
@@ -468,14 +461,13 @@ input:checked + .slider:before {
   background-color: #0e75d3;
 }
 
-/* 加载中提示 */
+/* 加载中提示（保持不变） */
 .loading-message {
   text-align: center;
   padding: 80px 20px;
   color: #666;
 }
 
-/* 加载动画（纯CSS实现） */
 .loading-spinner {
   width: 24px;
   height: 24px;
@@ -496,7 +488,33 @@ input:checked + .slider:before {
   font-size: 14px;
 }
 
-/* 适配小屏幕 */
+/* 新增错误提示样式 */
+.error-message {
+  text-align: center;
+  padding: 80px 20px 40px;
+  color: #999;
+  font-size: 16px;
+}
+
+.error-icon {
+  font-size: 60px;
+  margin-bottom: 20px;
+  color: #f53f3f;
+  opacity: 0.7;
+}
+
+.error-message p {
+  margin: 0 0 10px 0;
+}
+
+.error-message p:first-of-type {
+  font-size: 18px;
+  font-weight: 600;
+  color: #f53f3f;
+  margin-bottom: 8px;
+}
+
+/* 适配小屏幕（保持不变） */
 @media (max-width: 375px) {
   .device-name {
     font-size: 16px;
